@@ -1,0 +1,39 @@
+# ─── Secrets — NUNCA versionar ────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.*.local
+*.pem
+*.key
+*credentials*
+
+# ─── Frontend ─────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/next-env.d.ts
+*.tsbuildinfo
+
+# ─── Backend ──────────────────────────────────────────────────────────────────
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/.pytest_cache/
+backend/.venv/
+backend/venv/
+backend/*.egg-info/
+
+# ─── Infra / OS ───────────────────────────────────────────────────────────────
+.DS_Store
+*.log
+.idea/
+.vscode/
+docker-compose.override.yml
+
+# ─── Banco local ──────────────────────────────────────────────────────────────
+*.sqlite3
+pgdata/
+frontend/.pnpm-store/
+backend/celerybeat-schedule*
+.env.frontend
