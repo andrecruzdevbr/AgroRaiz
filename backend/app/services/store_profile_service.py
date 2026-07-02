@@ -127,6 +127,7 @@ def merge_settings(store: Store) -> dict[str, Any]:
     links = {**_default_links(store), **(settings.get("links") or {})}
     return {
         "tagline": settings.get("tagline") or "",
+        "short_description": settings.get("short_description") or "",
         "description": settings.get("description") or "",
         "address": settings.get("address") or "",
         "opening_hours": settings.get("opening_hours") or "",
@@ -245,7 +246,7 @@ async def serialize_store_vitrine(db: AsyncSession, store: Store) -> dict[str, A
     hero_title = vitrine.get("hero_title") or (
         f"Bem-vindo à {store.name}" if store.name else "Bem-vindo à nossa loja"
     )
-    hero_subtitle = vitrine.get("hero_subtitle") or profile.get("tagline") or profile.get("description") or (
+    hero_subtitle = vitrine.get("hero_subtitle") or profile.get("short_description") or profile.get("tagline") or profile.get("description") or (
         f"Atendemos você em {city_state}" if city_state else ""
     )
 

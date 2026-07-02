@@ -71,6 +71,7 @@ class StoreLinks(BaseModel):
 class StoreProfileUpdate(BaseModel):
     name: str = Field(..., min_length=2, max_length=200)
     tagline: str = Field("", max_length=300)
+    short_description: str = Field("", max_length=1000)
     description: str = Field("", max_length=5000)
     phone: Optional[str] = None
     whatsapp: Optional[str] = None
@@ -182,6 +183,7 @@ async def update_store_profile(
 
     store.settings = {
         "tagline": body.tagline.strip(),
+        "short_description": body.short_description.strip(),
         "description": body.description.strip(),
         "address": body.address.strip(),
         "opening_hours": body.opening_hours.strip(),

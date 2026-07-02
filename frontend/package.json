@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:fresh": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev",
-    "verify:landing-admin": "node scripts/verify-landing-admin.mjs",
+    "dev:fresh": "node scripts/dev-fresh.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx --ignore-pattern node_modules --ignore-pattern .next"

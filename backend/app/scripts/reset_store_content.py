@@ -22,6 +22,7 @@ async def reset_store_content() -> None:
         store.whatsapp = "+5531995122303"
         store.settings = {
             "tagline": "",
+            "short_description": "",
             "description": "",
             "address": "",
             "opening_hours": "",

@@ -443,6 +443,7 @@ export interface StoreProfile {
   state: string | null
   logo_url: string | null
   tagline: string
+  short_description: string
   description: string
   address: string
   opening_hours: string

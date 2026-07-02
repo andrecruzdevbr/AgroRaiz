@@ -564,6 +564,7 @@ export function Footer() {
 
   const footerText =
     store.tagline ||
+    store.short_description ||
     store.description ||
     (store.city_state
       ? `Produtos agropecuários e pet shop em ${store.city_state}.`
