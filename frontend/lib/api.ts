@@ -572,6 +572,9 @@ export const adminAiApi = {
   cancel: () =>
     apiFetch<AdminAiChatResponse>('/admin-ai/cancel', { method: 'POST' }),
 
+  reset: () =>
+    apiFetch<AdminAiChatResponse>('/admin-ai/reset', { method: 'POST' }),
+
   select: (selectionIndex: number) =>
     apiFetch<AdminAiChatResponse>('/admin-ai/select', {
       method: 'POST',

@@ -56,3 +56,9 @@ async def pop_undo(redis, store_id: UUID, user_id: UUID) -> Optional[dict[str, A
         await redis.delete(_undo_key(store_id, user_id))
         return json.loads(raw)
     return None
+
+
+async def clear_session(redis, store_id: UUID, user_id: UUID) -> None:
+    await redis.delete(_key(store_id, user_id))
+    await redis.delete(_pending_key(store_id, user_id))
+    await redis.delete(_undo_key(store_id, user_id))

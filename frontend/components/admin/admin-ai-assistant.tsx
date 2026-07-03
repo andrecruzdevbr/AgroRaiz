@@ -1,14 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, Send, Loader2, Check, X } from 'lucide-react'
+import { Bot, Send, Loader2, Check, X, MessageSquarePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
 } from '@/components/ui/sheet'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { adminAiApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -19,13 +18,15 @@ interface ChatMessage {
 }
 
 const QUICK_SUGGESTIONS = [
-  'Registrar reposição',
-  'Registrar venda de balcão',
-  'Registrar venda com entrega',
-  'Consultar estoque',
-  'Cadastrar produto',
-  'Ver produtos com estoque baixo',
+  { label: 'Registrar reposição', message: 'Chegaram produtos no estoque' },
+  { label: 'Registrar venda de balcão', message: 'Registrar venda de balcão' },
+  { label: 'Registrar venda com entrega', message: 'Registrar venda com entrega' },
+  { label: 'Consultar estoque', message: 'Consultar estoque' },
+  { label: 'Ver estoque baixo', message: 'Ver produtos com estoque baixo' },
 ]
+
+const WELCOME_TEXT =
+  'Olá! Posso ajudar com estoque, vendas e cadastro de produtos. Descreva o que precisa ou use uma sugestão abaixo.'
 
 interface AdminAiAssistantProps {
   open: boolean
@@ -38,12 +39,11 @@ export function AdminAiAssistant({ open, onOpenChange, onActionComplete }: Admin
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const loadHistory = useCallback(async () => {
+  const syncPendingState = useCallback(async () => {
     try {
       const data = await adminAiApi.getHistory()
-      setMessages((data.history || []) as ChatMessage[])
       setPendingConfirm(!!data.pending_action)
     } catch {
       /* ignore */
@@ -51,12 +51,14 @@ export function AdminAiAssistant({ open, onOpenChange, onActionComplete }: Admin
   }, [])
 
   useEffect(() => {
-    if (open) loadHistory()
-  }, [open, loadHistory])
+    if (open) syncPendingState()
+  }, [open, syncPendingState])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+    if (open) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, loading, open, pendingConfirm])
 
   const sendMessage = async (text: string) => {
     const msg = text.trim()
@@ -72,7 +74,7 @@ export function AdminAiAssistant({ open, onOpenChange, onActionComplete }: Admin
         onActionComplete?.()
       }
     } catch (e: unknown) {
-      const err = e instanceof Error ? e.message : 'Erro ao enviar mensagem'
+      const err = e instanceof Error ? e.message : 'Não foi possível enviar a mensagem.'
       toast.error(err)
       setMessages(prev => [...prev, { role: 'assistant', content: err }])
     } finally {
@@ -108,35 +110,76 @@ export function AdminAiAssistant({ open, onOpenChange, onActionComplete }: Admin
     }
   }
 
+  const handleNewConversation = async () => {
+    setLoading(true)
+    try {
+      await adminAiApi.reset()
+      setMessages([])
+      setInput('')
+      setPendingConfirm(false)
+      toast.success('Nova conversa iniciada')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao iniciar nova conversa')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage(input)
+    }
+  }
+
+  const showWelcome = messages.length === 0
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 gap-0">
-        <SheetHeader className="p-4 border-b shrink-0">
-          <SheetTitle className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-primary" />
-            Assistente de Gestão IA
-          </SheetTitle>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-lg flex flex-col gap-0 p-0 h-full max-h-[100dvh] overflow-hidden"
+      >
+        <SheetHeader className="p-4 pr-12 border-b shrink-0 space-y-1">
+          <div className="flex items-start justify-between gap-2">
+            <SheetTitle className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-primary shrink-0" />
+              Assistente de Gestão IA
+            </SheetTitle>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-1 text-xs h-8"
+              onClick={handleNewConversation}
+              disabled={loading}
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5" />
+              Nova conversa
+            </Button>
+          </div>
           <SheetDescription>
             Descreva o que precisa em linguagem simples. Nada é alterado sem sua confirmação.
           </SheetDescription>
         </SheetHeader>
 
-        <ScrollArea className="flex-1 px-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4">
           <div className="space-y-3 py-4">
-            {messages.length === 0 && (
+            {showWelcome && (
               <div className="text-sm text-muted-foreground space-y-3">
-                <p>Olá! Posso ajudar com estoque, vendas e cadastro de produtos.</p>
+                <p>{WELCOME_TEXT}</p>
                 <div className="flex flex-wrap gap-2">
                   {QUICK_SUGGESTIONS.map(s => (
                     <Button
-                      key={s}
+                      key={s.label}
+                      type="button"
                       variant="outline"
                       size="sm"
                       className="text-xs h-auto py-1.5"
-                      onClick={() => sendMessage(s === 'Registrar reposição' ? 'Chegaram produtos no estoque' : s === 'Consultar estoque' ? 'Consultar estoque' : s)}
+                      onClick={() => sendMessage(s.message)}
                       disabled={loading}
                     >
-                      {s}
+                      {s.label}
                     </Button>
                   ))}
                 </div>
@@ -146,7 +189,7 @@ export function AdminAiAssistant({ open, onOpenChange, onActionComplete }: Admin
               <div
                 key={i}
                 className={cn(
-                  'rounded-lg px-3 py-2 text-sm max-w-[90%] whitespace-pre-wrap',
+                  'rounded-lg px-3 py-2 text-sm max-w-[90%] whitespace-pre-wrap break-words',
                   m.role === 'user'
                     ? 'ml-auto bg-primary text-primary-foreground'
                     : 'bg-muted',
@@ -160,33 +203,44 @@ export function AdminAiAssistant({ open, onOpenChange, onActionComplete }: Admin
                 <Loader2 className="w-4 h-4 animate-spin" /> Pensando...
               </div>
             )}
-            <div ref={bottomRef} />
+            <div ref={messagesEndRef} />
           </div>
-        </ScrollArea>
+        </div>
 
         {pendingConfirm && (
-          <div className="px-4 py-2 border-t bg-warning/5 flex items-center gap-2 shrink-0">
+          <div className="px-4 py-2 border-t bg-warning/5 flex flex-wrap items-center gap-2 shrink-0">
             <Badge variant="outline" className="text-xs">Aguardando confirmação</Badge>
-            <Button size="sm" className="gap-1" onClick={handleConfirm} disabled={loading}>
+            <Button type="button" size="sm" className="gap-1" onClick={handleConfirm} disabled={loading}>
               <Check className="w-3 h-3" /> Confirmar
             </Button>
-            <Button size="sm" variant="outline" className="gap-1" onClick={handleCancel} disabled={loading}>
+            <Button type="button" size="sm" variant="outline" className="gap-1" onClick={handleCancel} disabled={loading}>
               <X className="w-3 h-3" /> Cancelar
             </Button>
           </div>
         )}
 
-        <div className="p-4 border-t flex gap-2 shrink-0">
-          <Input
-            placeholder="Ex: Chegaram 10 sacos de Golden Adulto 15kg"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage(input)}
-            disabled={loading}
-          />
-          <Button size="icon" onClick={() => sendMessage(input)} disabled={loading || !input.trim()}>
-            <Send className="w-4 h-4" />
-          </Button>
+        <div className="p-4 border-t bg-background shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="flex gap-2 items-end">
+            <Textarea
+              placeholder="Digite uma mensagem para a Assistente IA..."
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+              rows={1}
+              className="min-h-[44px] max-h-32 resize-none flex-1"
+            />
+            <Button
+              type="button"
+              size="icon"
+              className="shrink-0 h-11 w-11"
+              onClick={() => sendMessage(input)}
+              disabled={loading || !input.trim()}
+              aria-label="Enviar mensagem"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </SheetContent>
     </Sheet>

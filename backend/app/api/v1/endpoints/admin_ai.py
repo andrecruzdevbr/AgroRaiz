@@ -77,6 +77,13 @@ async def cancel_action(
     return await admin_ai_service.cancel_pending(current_user.store_id, current_user.id)
 
 
+@router.post("/reset")
+async def reset_chat(
+    current_user=Depends(get_current_user),
+):
+    return await admin_ai_service.reset_session(current_user.store_id, current_user.id)
+
+
 @router.post("/select")
 async def select_product(
     body: SelectRequest,

@@ -225,3 +225,13 @@ async def get_history(store_id: UUID, user_id: UUID) -> dict[str, Any]:
     session = await session_store.load_session(redis, store_id, user_id)
     pending = await session_store.load_pending(redis, store_id, user_id)
     return {"history": session.get("messages", []), "pending_action": pending}
+
+
+async def reset_session(store_id: UUID, user_id: UUID) -> dict[str, Any]:
+    redis = await get_redis()
+    await session_store.clear_session(redis, store_id, user_id)
+    return {
+        "response_type": "message",
+        "message": "Nova conversa iniciada.",
+        "pending_action": None,
+    }
