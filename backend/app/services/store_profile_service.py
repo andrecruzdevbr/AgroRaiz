@@ -196,10 +196,13 @@ async def build_featured_categories(
     store: Store,
     vitrine: dict[str, Any],
 ) -> list[dict]:
+    from app.services.category_service import get_category_labels
+
     stats = await get_category_stats(db, store.id)
     if not stats:
         return []
 
+    labels = await get_category_labels(db, store.id)
     selected = vitrine.get("featured_categories") or []
     if selected:
         ordered = []
@@ -217,7 +220,7 @@ async def build_featured_categories(
         key = row["categoria"]
         featured.append({
             "key": key,
-            "label": CATEGORY_LABELS.get(key, key.replace("_", " ").title()),
+            "label": labels.get(key, CATEGORY_LABELS.get(key, key.replace("_", " ").title())),
             "count": row["total"],
             "sample_products": await get_sample_products(db, store.id, key),
         })

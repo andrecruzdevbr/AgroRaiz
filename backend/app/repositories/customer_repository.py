@@ -12,11 +12,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Customer, CustomerInteraction, CustomerStatus
 from app.repositories.base import BaseRepository
 
+# Cliente técnico para vendas de balcão sem identificação — não é lead CRM
+SYSTEM_CUSTOMER_PHONE = "_consumidor_final"
+
+
+def _exclude_system_customer(query):
+    return query.where(Customer.phone != SYSTEM_CUSTOMER_PHONE)
+
 
 class CustomerRepository(BaseRepository[Customer]):
 
     def __init__(self, db: AsyncSession):
         super().__init__(Customer, db)
+
+    async def count(self, store_id: UUID, **filters) -> int:
+        query = _exclude_system_customer(
+            select(func.count()).select_from(Customer).where(
+                Customer.store_id == store_id
+            )
+        )
+        for key, value in filters.items():
+            if value is not None and hasattr(Customer, key):
+                query = query.where(getattr(Customer, key) == value)
+        return await self.db.scalar(query) or 0
 
     async def get_by_phone(self, phone: str, store_id: UUID) -> Optional[Customer]:
         result = await self.db.execute(
@@ -56,6 +74,8 @@ class CustomerRepository(BaseRepository[Customer]):
         count_query = select(func.count()).select_from(Customer).where(
             Customer.store_id == store_id
         )
+        query = _exclude_system_customer(query)
+        count_query = _exclude_system_customer(count_query)
 
         if busca:
             search_filter = or_(
@@ -84,14 +104,16 @@ class CustomerRepository(BaseRepository[Customer]):
     ) -> List[Customer]:
         cutoff = datetime.utcnow() - timedelta(days=days_threshold)
         result = await self.db.execute(
-            select(Customer).where(
-                and_(
-                    Customer.store_id == store_id,
-                    Customer.status == CustomerStatus.ATIVO,
-                    or_(
-                        Customer.ultimo_contato < cutoff,
-                        Customer.ultimo_contato == None,
-                    ),
+            _exclude_system_customer(
+                select(Customer).where(
+                    and_(
+                        Customer.store_id == store_id,
+                        Customer.status == CustomerStatus.ATIVO,
+                        or_(
+                            Customer.ultimo_contato < cutoff,
+                            Customer.ultimo_contato == None,
+                        ),
+                    )
                 )
             )
         )
@@ -136,13 +158,14 @@ class CustomerRepository(BaseRepository[Customer]):
         novos = await self.count(store_id, frequencia="novo")
         vip = await self.count(store_id, frequencia="vip")
 
-        # New this month
         start_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0)
         result = await self.db.scalar(
-            select(func.count()).select_from(Customer).where(
-                and_(
-                    Customer.store_id == store_id,
-                    Customer.created_at >= start_month,
+            _exclude_system_customer(
+                select(func.count()).select_from(Customer).where(
+                    and_(
+                        Customer.store_id == store_id,
+                        Customer.created_at >= start_month,
+                    )
                 )
             )
         )

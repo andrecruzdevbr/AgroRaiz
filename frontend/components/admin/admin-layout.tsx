@@ -46,9 +46,9 @@ const menuItems = [
   },
   { 
     href: '/admin/produtos', 
-    label: 'Produtos', 
-    icon: Package, ShieldCheck,
-    description: 'Estoque e catálogo'
+    label: 'Produtos e Estoque',
+    icon: Package,
+    description: 'Catálogo, categorias e estoque'
   },
   { 
     href: '/admin/estoque-inteligente', 

@@ -14,6 +14,7 @@ from app.models.models import (
     Customer, Order, Conversation, Product,
     ConversationStatus, AISession, Campaign, CampaignStatus,
 )
+from app.repositories.customer_repository import SYSTEM_CUSTOMER_PHONE
 
 router = APIRouter()
 
@@ -34,14 +35,17 @@ async def get_metrics(
             return 100.0 if curr else 0.0
         return round(((curr - prev) / prev) * 100, 1)
 
-    # ─── Customers ────────────────────────────────────────────────────────────
+    # ─── Customers (exclui Consumidor final — vínculo técnico de balcão) ─────
+    crm_filter = Customer.phone != SYSTEM_CUSTOMER_PHONE
     total_customers = await db.scalar(
-        select(func.count(Customer.id)).where(Customer.store_id == store_id)
+        select(func.count(Customer.id)).where(
+            and_(Customer.store_id == store_id, crm_filter)
+        )
     ) or 0
 
     new_customers = await db.scalar(
         select(func.count(Customer.id)).where(
-            and_(Customer.store_id == store_id, Customer.created_at >= since)
+            and_(Customer.store_id == store_id, Customer.created_at >= since, crm_filter)
         )
     ) or 0
 
@@ -51,6 +55,7 @@ async def get_metrics(
                 Customer.store_id == store_id,
                 Customer.created_at >= prev_since,
                 Customer.created_at < since,
+                crm_filter,
             )
         )
     ) or 0

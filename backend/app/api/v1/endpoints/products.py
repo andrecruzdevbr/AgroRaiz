@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin, require_attendant
 from app.repositories.product_repository import ProductRepository
+from app.services.category_service import resolve_category_for_product
+from app.services.stock_audit_service import write_stock_audit
 
 router = APIRouter()
 
@@ -43,13 +45,17 @@ class ProductUpdate(BaseModel):
     nome: Optional[str] = None
     descricao: Optional[str] = None
     categoria: Optional[str] = None
+    subcategoria: Optional[str] = None
     marca: Optional[str] = None
+    sku: Optional[str] = None
+    codigo_barras: Optional[str] = None
     preco: Optional[float] = None
     preco_promocional: Optional[float] = None
     custo_medio: Optional[float] = None
     estoque: Optional[int] = None
     estoque_minimo: Optional[int] = None
     estoque_maximo: Optional[int] = None
+    unidade: Optional[str] = None
     destaque: Optional[bool] = None
     ativo: Optional[bool] = None
     tags: Optional[List[str]] = None
@@ -57,9 +63,9 @@ class ProductUpdate(BaseModel):
 
 
 class StockAdjustRequest(BaseModel):
-    quantity: int = Field(..., ge=1)
-    operation: str = Field(..., pattern="^(adicionar|remover)$")
-    motivo: Optional[str] = None
+    quantity: int = Field(..., ge=0)
+    operation: str = Field(..., pattern="^(adicionar|remover|corrigir)$")
+    motivo: str = Field(..., min_length=3, max_length=500)
 
 
 @router.get("")
@@ -69,6 +75,8 @@ async def list_products(
     ativo: bool = Query(None),
     destaque: bool = Query(None),
     estoque_baixo: bool = Query(False),
+    promocao: bool = Query(False),
+    estoque_status: str = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -83,6 +91,8 @@ async def list_products(
         ativo=ativo,
         destaque=destaque,
         estoque_baixo=estoque_baixo,
+        promocao=promocao,
+        estoque_status=estoque_status,
         offset=offset,
         limit=page_size,
     )
@@ -92,6 +102,15 @@ async def list_products(
         "page": page,
         "total_pages": (total + page_size - 1) // page_size,
     }
+
+
+@router.get("/summary")
+async def get_products_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    repo = ProductRepository(db)
+    return await repo.get_inventory_summary(current_user.store_id)
 
 
 @router.get("/low-stock")
@@ -136,10 +155,18 @@ async def create_product(
     current_user=Depends(require_admin),
 ):
     repo = ProductRepository(db)
-    product = await repo.create(
-        store_id=current_user.store_id,
-        **body.model_dump(),
-    )
+    data = body.model_dump()
+    if body.categoria:
+        try:
+            slug, cat_id = await resolve_category_for_product(
+                db, current_user.store_id, body.categoria
+            )
+            data["categoria"] = slug
+            data["category_id"] = cat_id
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    product = await repo.create(store_id=current_user.store_id, **data)
     return _serialize(product)
 
 
@@ -156,6 +183,16 @@ async def update_product(
         raise HTTPException(404, "Produto não encontrado")
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "categoria" in updates and updates["categoria"]:
+        try:
+            slug, cat_id = await resolve_category_for_product(
+                db, current_user.store_id, updates["categoria"]
+            )
+            updates["categoria"] = slug
+            updates["category_id"] = cat_id
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
     product = await repo.update(product, **updates)
     return _serialize(product)
 
@@ -170,7 +207,6 @@ async def delete_product(
     product = await repo.get(product_id, current_user.store_id)
     if not product:
         raise HTTPException(404, "Produto não encontrado")
-    # Soft delete
     await repo.update(product, ativo=False)
 
 
@@ -186,28 +222,45 @@ async def adjust_stock(
     if not product:
         raise HTTPException(404, "Produto não encontrado")
 
-    # Capture values BEFORE commit (session expires attributes after commit)
-    product_nome = product.nome
-    product_estoque_minimo = product.estoque_minimo
-    delta = body.quantity if body.operation == "adicionar" else -body.quantity
-    new_stock = max(0, product.estoque + delta)
+    if body.operation in ("adicionar", "remover") and body.quantity < 1:
+        raise HTTPException(400, "Quantidade deve ser pelo menos 1 para entrada ou saída")
 
-    await repo.adjust_stock(product_id, body.quantity, body.operation)
+    old_stock = product.estoque
+    new_stock = await repo.adjust_stock(product_id, body.quantity, body.operation)
+
+    await write_stock_audit(
+        db,
+        store_id=current_user.store_id,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        product_id=product_id,
+        product_name=product.nome,
+        action="stock_adjusted",
+        old_stock=old_stock,
+        new_stock=new_stock,
+        operation=body.operation,
+        quantity=body.quantity,
+        motivo=body.motivo.strip(),
+    )
     await db.commit()
 
-    # Broadcast alert if below minimum (after commit, use captured values)
-    if new_stock <= product_estoque_minimo:
+    if new_stock <= product.estoque_minimo:
         try:
             from app.core.websocket import ws_manager
             await ws_manager.broadcast(
                 str(current_user.store_id),
                 "stock_alert",
-                {"product_id": str(product_id), "nome": product_nome, "estoque": new_stock},
+                {"product_id": str(product_id), "nome": product.nome, "estoque": new_stock},
             )
         except Exception:
-            pass  # Non-critical: don't fail the request if WS broadcast fails
+            pass
 
-    return {"status": "updated", "new_stock": new_stock, "product": product_nome}
+    return {
+        "status": "updated",
+        "old_stock": old_stock,
+        "new_stock": new_stock,
+        "product": product.nome,
+    }
 
 
 def _serialize(p) -> dict:
@@ -247,4 +300,3 @@ def _stock_status(p) -> str:
     if p.estoque <= p.estoque_minimo * 2:
         return "baixo"
     return "normal"
-

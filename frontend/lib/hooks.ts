@@ -5,7 +5,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  dashboardApi, customersApi, productsApi,
+  dashboardApi, customersApi, productsApi, categoriesApi,
   conversationsApi, whatsappApi, campaignsApi, aiApi,
   storeApi,
   apiFetch,
@@ -19,7 +19,9 @@ export const KEYS = {
   customer: (id: string) => ['customer', id],
   customerInteractions: (id: string) => ['customer', id, 'interactions'],
   products: (params: object) => ['products', params],
+  productSummary: () => ['products', 'summary'],
   productLowStock: () => ['products', 'low-stock'],
+  categories: (includeInactive?: boolean) => ['categories', includeInactive],
   conversations: (params: object) => ['conversations', params],
   conversationMessages: (id: string) => ['conversation', id, 'messages'],
   campaigns: () => ['campaigns'],
@@ -125,12 +127,56 @@ export function useUpdateProduct() {
   })
 }
 
+export function useProductsSummary() {
+  return useQuery({
+    queryKey: KEYS.productSummary(),
+    queryFn: () => productsApi.getSummary(),
+    refetchInterval: 120_000,
+  })
+}
+
 export function useAdjustStock() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, quantity, operation }: { id: string; quantity: number; operation: 'adicionar' | 'remover' }) =>
-      productsApi.updateStock(id, quantity, operation),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+    mutationFn: ({
+      id, quantity, operation, motivo,
+    }: {
+      id: string
+      quantity: number
+      operation: 'adicionar' | 'remover' | 'corrigir'
+      motivo: string
+    }) => productsApi.updateStock(id, quantity, operation, motivo),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['products'] })
+    },
+  })
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+export function useCategories(includeInactive = true) {
+  return useQuery({
+    queryKey: KEYS.categories(includeInactive),
+    queryFn: async () => {
+      const data = await categoriesApi.list(includeInactive)
+      return data.categories
+    },
+  })
+}
+
+export function useCreateCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => categoriesApi.create(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
+  })
+}
+
+export function useUpdateCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name?: string; active?: boolean } }) =>
+      categoriesApi.update(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
   })
 }
 

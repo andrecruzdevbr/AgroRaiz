@@ -297,17 +297,34 @@ export const productsApi = {
     busca?: string
     categoria?: string
     ativo?: boolean
+    destaque?: boolean
     estoque_baixo?: boolean
+    promocao?: boolean
+    estoque_status?: string
     page?: number
+    page_size?: number
   } = {}) => {
     const q = new URLSearchParams()
     if (params.busca) q.set('busca', params.busca)
     if (params.categoria) q.set('categoria', params.categoria)
     if (params.ativo !== undefined) q.set('ativo', String(params.ativo))
+    if (params.destaque !== undefined) q.set('destaque', String(params.destaque))
     if (params.estoque_baixo) q.set('estoque_baixo', 'true')
-    q.set('offset', String(((params.page || 1) - 1) * 50))
+    if (params.promocao) q.set('promocao', 'true')
+    if (params.estoque_status) q.set('estoque_status', params.estoque_status)
+    q.set('page', String(params.page || 1))
+    if (params.page_size) q.set('page_size', String(params.page_size))
     return apiFetch(`/products?${q}`)
   },
+
+  getSummary: () => apiFetch<{
+    total: number
+    ativos: number
+    inativos: number
+    zerados: number
+    abaixo_minimo: number
+    promocao: number
+  }>('/products/summary'),
 
   get: (id: string) => apiFetch(`/products/${id}`),
 
@@ -317,13 +334,51 @@ export const productsApi = {
   update: (id: string, data: Record<string, unknown>) =>
     apiFetch(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-  updateStock: (id: string, quantity: number, operation: 'adicionar' | 'remover') =>
+  updateStock: (
+    id: string,
+    quantity: number,
+    operation: 'adicionar' | 'remover' | 'corrigir',
+    motivo: string,
+  ) =>
     apiFetch(`/products/${id}/stock`, {
       method: 'POST',
-      body: JSON.stringify({ quantity, operation }),
+      body: JSON.stringify({ quantity, operation, motivo }),
     }),
 
   getLowStock: () => apiFetch('/products/low-stock'),
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+export interface ProductCategory {
+  id: string
+  name: string
+  slug: string
+  active: boolean
+  product_count: number
+  created_at: string | null
+}
+
+export const categoriesApi = {
+  list: (includeInactive = false) =>
+    apiFetch<{ categories: ProductCategory[] }>(
+      `/categories?include_inactive=${includeInactive}`,
+    ),
+
+  create: (name: string) =>
+    apiFetch<ProductCategory>('/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  update: (id: string, data: { name?: string; active?: boolean }) =>
+    apiFetch<ProductCategory>(`/categories/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    apiFetch(`/categories/${id}`, { method: 'DELETE' }),
 }
 
 // ─── Conversations ────────────────────────────────────────────────────────────
@@ -485,6 +540,43 @@ export function createWebSocket(storeId: string, token: string): WebSocket {
   const wsBase = API_BASE.replace('http', 'ws').replace('https', 'wss')
   const ws = new WebSocket(`${wsBase}/api/v1/ws/${storeId}?token=${token}`)
   return ws
+}
+
+// ─── Admin AI Assistant ───────────────────────────────────────────────────────
+
+export interface AdminAiChatResponse {
+  response_type: string
+  message: string
+  preview?: Record<string, unknown>
+  candidates?: { index: number; id: string; nome: string; estoque: number }[]
+  pending_action?: Record<string, unknown> | null
+  history?: { role: string; content: string }[]
+  order_id?: string
+}
+
+export const adminAiApi = {
+  getHistory: () =>
+    apiFetch<{ history: { role: string; content: string }[]; pending_action: unknown }>(
+      '/admin-ai/history',
+    ),
+
+  chat: (message: string, selectionIndex?: number) =>
+    apiFetch<AdminAiChatResponse>('/admin-ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, selection_index: selectionIndex }),
+    }),
+
+  confirm: () =>
+    apiFetch<AdminAiChatResponse>('/admin-ai/confirm', { method: 'POST' }),
+
+  cancel: () =>
+    apiFetch<AdminAiChatResponse>('/admin-ai/cancel', { method: 'POST' }),
+
+  select: (selectionIndex: number) =>
+    apiFetch<AdminAiChatResponse>('/admin-ai/select', {
+      method: 'POST',
+      body: JSON.stringify({ selection_index: selectionIndex }),
+    }),
 }
 
 // ─── Stock Monitoring ─────────────────────────────────────────────────────────

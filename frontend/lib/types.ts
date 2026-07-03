@@ -65,7 +65,7 @@ export interface Produto {
   estoque: number
   estoque_minimo: number
   estoque_maximo: number
-  estoque_status: 'normal' | 'baixo' | 'critico'
+  estoque_status: 'normal' | 'baixo' | 'critico' | 'sem_estoque'
   localizacao?: string | null
   fornecedor?: string | null
   imagens: string[]

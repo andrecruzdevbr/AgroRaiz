@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user, require_admin
 from app.models.models import Store
+from app.services.category_service import get_category_labels, serialize_categories, ensure_store_categories
 from app.services.store_profile_service import (
-    CATEGORY_LABELS,
     build_whatsapp_link,
     instagram_to_url,
     merge_settings,
@@ -49,9 +49,6 @@ class VitrineSettings(BaseModel):
     def validate_featured_categories(cls, v: list[str]) -> list[str]:
         if len(v) > 6:
             raise ValueError("Máximo de 6 categorias em destaque")
-        invalid = [c for c in v if c not in CATEGORY_LABELS]
-        if invalid:
-            raise ValueError(f"Categorias inválidas: {', '.join(invalid)}")
         return v
 
     @field_validator("testimonials")
@@ -145,10 +142,11 @@ async def get_store_profile(
     store = await db.get(Store, current_user.store_id)
     if not store:
         raise HTTPException(404, "Loja não encontrada")
+    labels = await get_category_labels(db, current_user.store_id)
     return {
         **serialize_store_profile(store),
         "available_categories": [
-            {"key": k, "label": v} for k, v in CATEGORY_LABELS.items()
+            {"key": k, "label": v} for k, v in labels.items() if v
         ],
     }
 
@@ -192,14 +190,22 @@ async def update_store_profile(
     }
 
     await db.flush()
+    labels = await get_category_labels(db, current_user.store_id)
     return {
         **serialize_store_profile(store),
         "available_categories": [
-            {"key": k, "label": v} for k, v in CATEGORY_LABELS.items()
+            {"key": k, "label": v} for k, v in labels.items() if v
         ],
     }
 
 
 @router.get("/categories")
-async def list_store_categories():
-    return [{"key": k, "label": v} for k, v in CATEGORY_LABELS.items()]
+async def list_store_categories(
+    slug: str = Query("agro-raiz"),
+    db: AsyncSession = Depends(get_db),
+):
+    store = await _get_store_by_slug(db, slug)
+    await ensure_store_categories(db, store.id)
+    await db.commit()
+    cats = await serialize_categories(db, store.id)
+    return [{"key": c["slug"], "label": c["name"]} for c in cats if c["active"]]

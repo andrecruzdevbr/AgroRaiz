@@ -25,6 +25,8 @@ class ProductRepository(BaseRepository[Product]):
         ativo: bool = None,
         destaque: bool = None,
         estoque_baixo: bool = False,
+        promocao: bool = False,
+        estoque_status: str = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[List[Product], int]:
@@ -58,6 +60,20 @@ class ProductRepository(BaseRepository[Product]):
             f = Product.estoque <= Product.estoque_minimo
             query = query.where(f)
             count_query = count_query.where(f)
+
+        if promocao:
+            f = and_(
+                Product.preco_promocional.isnot(None),
+                Product.preco_promocional > 0,
+            )
+            query = query.where(f)
+            count_query = count_query.where(f)
+
+        if estoque_status:
+            f = self._estoque_status_filter(estoque_status)
+            if f is not None:
+                query = query.where(f)
+                count_query = count_query.where(f)
 
         total = await self.db.scalar(count_query)
         result = await self.db.execute(
@@ -109,17 +125,89 @@ class ProductRepository(BaseRepository[Product]):
         )
         return result.scalar_one_or_none()
 
+    @staticmethod
+    def _estoque_status_filter(status: str):
+        if status == "sem_estoque":
+            return Product.estoque == 0
+        if status == "critico":
+            return and_(Product.estoque > 0, Product.estoque <= Product.estoque_minimo)
+        if status == "baixo":
+            return and_(
+                Product.estoque > Product.estoque_minimo,
+                Product.estoque <= Product.estoque_minimo * 2,
+            )
+        if status == "normal":
+            return Product.estoque > Product.estoque_minimo * 2
+        return None
+
     async def adjust_stock(
         self, product_id: UUID, quantity: int, operation: str
-    ) -> None:
-        """operation: 'adicionar' | 'remover'"""
+    ) -> int:
+        """operation: 'adicionar' | 'remover' | 'corrigir'. Returns new stock."""
         from sqlalchemy import update
-        delta = quantity if operation == "adicionar" else -quantity
+
+        product = await self.get_by_id(product_id)
+        if not product:
+            return 0
+
+        if operation == "corrigir":
+            new_stock = max(0, quantity)
+        else:
+            delta = quantity if operation == "adicionar" else -quantity
+            new_stock = max(0, product.estoque + delta)
+
         await self.db.execute(
             update(Product)
             .where(Product.id == product_id)
-            .values(estoque=func.greatest(0, Product.estoque + delta))
+            .values(estoque=new_stock)
         )
+        return new_stock
+
+    async def get_inventory_summary(self, store_id: UUID) -> dict:
+        total = await self.count(store_id)
+        ativos = await self.count(store_id, ativo=True)
+        inativos = total - ativos
+
+        zerados = await self.db.scalar(
+            select(func.count()).select_from(Product).where(
+                and_(
+                    Product.store_id == store_id,
+                    Product.ativo == True,
+                    Product.estoque == 0,
+                )
+            )
+        ) or 0
+
+        abaixo_minimo = await self.db.scalar(
+            select(func.count()).select_from(Product).where(
+                and_(
+                    Product.store_id == store_id,
+                    Product.ativo == True,
+                    Product.estoque > 0,
+                    Product.estoque <= Product.estoque_minimo,
+                )
+            )
+        ) or 0
+
+        promocao = await self.db.scalar(
+            select(func.count()).select_from(Product).where(
+                and_(
+                    Product.store_id == store_id,
+                    Product.ativo == True,
+                    Product.preco_promocional.isnot(None),
+                    Product.preco_promocional > 0,
+                )
+            )
+        ) or 0
+
+        return {
+            "total": total,
+            "ativos": ativos,
+            "inativos": inativos,
+            "zerados": zerados,
+            "abaixo_minimo": abaixo_minimo,
+            "promocao": promocao,
+        }
 
     async def get_category_stats(self, store_id: UUID) -> List[dict]:
         result = await self.db.execute(
